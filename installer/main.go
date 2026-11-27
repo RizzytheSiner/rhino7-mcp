@@ -1,10 +1,10 @@
-// rhino7-mcp setup: Rhino 7 <-> Claude Desktop MCP installer for Windows.
+// rhino7-mcp setup: Rhino 7/8 <-> Claude Desktop MCP installer for Windows.
 //
-// What it does (Python and Rhino 7 are assumed to be installed):
+// What it does (Python and Rhino 7 or 8 are assumed to be installed):
 //  1. Copies the MCP files to %USERPROFILE%\rhino7mcp
 //  2. Finds a suitable Python (3.10-3.13 preferred) and installs the `mcp` package
 //  3. Registers the "rhino7" server in the Claude Desktop config (keeps other settings)
-//  4. Creates a desktop shortcut "Rhino 7 + Claude" that starts Rhino with the listener
+//  4. Creates desktop shortcuts "Rhino 7 + Claude" / "Rhino 8 + Claude" that starts Rhino with the listener
 //  5. Optionally starts Rhino and checks the connection
 package main
 
@@ -30,7 +30,7 @@ import (
 //go:embed payload/*
 var payload embed.FS
 
-const version = "1.0.0"
+const version = "1.1.0"
 const port = 7311
 
 var logw io.Writer = os.Stdout
@@ -218,8 +218,13 @@ func copyPayload(dst string) error {
 	return nil
 }
 
-func findRhino() string {
-	out, err := exec.Command("reg", "query", `HKLM\SOFTWARE\McNeel\Rhinoceros\7.0\Install`, "/v", "InstallPath").Output()
+type rhinoInstall struct {
+	ver string // "7" or "8"
+	exe string
+}
+
+func findRhino(ver string) string {
+	out, err := exec.Command("reg", "query", `HKLM\SOFTWARE\McNeel\Rhinoceros\`+ver+`.0\Install`, "/v", "InstallPath").Output()
 	if err == nil {
 		re := regexp.MustCompile(`InstallPath\s+REG_SZ\s+(.+)`)
 		if m := re.FindStringSubmatch(string(out)); m != nil {
@@ -229,7 +234,7 @@ func findRhino() string {
 			}
 		}
 	}
-	for _, p := range []string{`C:\Program Files\Rhino 7\System\Rhino.exe`, `C:\Program Files\Rhinoceros 7\System\Rhino.exe`} {
+	for _, p := range []string{`C:\Program Files\Rhino ` + ver + `\System\Rhino.exe`, `C:\Program Files\Rhinoceros ` + ver + `\System\Rhino.exe`} {
 		if _, err := os.Stat(p); err == nil {
 			return p
 		}
@@ -237,19 +242,30 @@ func findRhino() string {
 	return ""
 }
 
+// findRhinos returns installed Rhino 7 and Rhino 8 (Rhino 7 first).
+func findRhinos() []rhinoInstall {
+	var list []rhinoInstall
+	for _, v := range []string{"7", "8"} {
+		if p := findRhino(v); p != "" {
+			list = append(list, rhinoInstall{v, p})
+		}
+	}
+	return list
+}
+
 func processRunning(image string) bool {
 	out, _ := exec.Command("tasklist", "/FI", "IMAGENAME eq "+image, "/NH").Output()
 	return strings.Contains(strings.ToLower(string(out)), strings.ToLower(image))
 }
 
-func createShortcut(target, args, workdir string) (string, error) {
+func createShortcut(name, target, args, workdir string) (string, error) {
 	ps := `$d=[Environment]::GetFolderPath('Desktop');` +
-		`$p=Join-Path $d 'Rhino 7 + Claude.lnk';` +
+		`$p=Join-Path $d ($env:R7_NAME+'.lnk');` +
 		`$s=(New-Object -ComObject WScript.Shell).CreateShortcut($p);` +
 		`$s.TargetPath=$env:R7_TARGET;$s.Arguments=$env:R7_ARGS;$s.WorkingDirectory=$env:R7_DIR;` +
-		`$s.IconLocation=$env:R7_TARGET+',0';$s.Description='Rhino 7 with Claude MCP listener';$s.Save();Write-Output $p`
+		`$s.IconLocation=$env:R7_TARGET+',0';$s.Description=$env:R7_NAME+' (Claude MCP listener)';$s.Save();Write-Output $p`
 	cmd := exec.Command("powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps)
-	cmd.Env = append(os.Environ(), "R7_TARGET="+target, "R7_ARGS="+args, "R7_DIR="+workdir)
+	cmd.Env = append(os.Environ(), "R7_NAME="+name, "R7_TARGET="+target, "R7_ARGS="+args, "R7_DIR="+workdir)
 	out, err := cmd.CombinedOutput()
 	return strings.TrimSpace(string(out)), err
 }
@@ -315,9 +331,9 @@ func main() {
 	home := os.Getenv("USERPROFILE")
 	dir := filepath.Join(home, "rhino7mcp")
 
-	fmt.Printf("Rhino 7 ↔ Claude MCP 설치 프로그램 v%s\n", version)
+	fmt.Printf("Rhino 7/8 ↔ Claude MCP 설치 프로그램 v%s\n", version)
 	fmt.Println("=============================================")
-	fmt.Println("필요한 것: Windows, Rhino 7, Python 3.10 이상, Claude 데스크톱 앱")
+	fmt.Println("필요한 것: Windows, Rhino 7 또는 8, Python 3.10 이상, Claude 데스크톱 앱")
 
 	// 1. files ---------------------------------------------------------------
 	step(1, "파일 복사")
@@ -392,16 +408,23 @@ func main() {
 	}
 
 	// 5. rhino shortcut --------------------------------------------------------
-	step(5, "Rhino 7 바로가기 만들기")
-	rhino := findRhino()
+	step(5, "Rhino 바로가기 만들기 (Rhino 7 / 8)")
+	rhinos := findRhinos()
 	listener := shortPath(filepath.Join(dir, "rhino_listener.py"))
 	rhinoArgs := fmt.Sprintf(`/nosplash /runscript="_-RunPythonScript %s"`, listener)
-	if rhino == "" {
-		warn("Rhino 7 을 찾지 못해 바로가기를 만들지 않았습니다.")
-	} else if lnk, err := createShortcut(rhino, rhinoArgs, dir); err != nil {
-		warn("바로가기를 만들지 못했습니다: %v %s", err, lnk)
+	rhino, rhinoVer := "", ""
+	if len(rhinos) == 0 {
+		warn("Rhino 7 / 8 을 찾지 못해 바로가기를 만들지 않았습니다.")
 	} else {
-		ok("바탕화면: %s", lnk)
+		rhino, rhinoVer = rhinos[0].exe, rhinos[0].ver
+	}
+	for _, r := range rhinos {
+		name := "Rhino " + r.ver + " + Claude"
+		if lnk, err := createShortcut(name, r.exe, rhinoArgs, dir); err != nil {
+			warn("%s 바로가기를 만들지 못했습니다: %v %s", name, err, lnk)
+		} else {
+			ok("바탕화면: %s", lnk)
+		}
 	}
 	say("   다른 방법으로 Rhino 를 열 때도 리스너를 켜려면 Rhino 도구 > 옵션 > 일반 >")
 	say("   'Rhino를 시작할 때마다 이 명령 실행' 칸에 아래 한 줄을 넣으세요:")
@@ -414,7 +437,7 @@ func main() {
 	} else if processRunning("Rhino.exe") {
 		warn("Rhino 가 열려 있지만 리스너가 꺼져 있습니다. Rhino 명령행에 아래를 입력하세요:")
 		say("     _-RunPythonScript %s", listener)
-	} else if rhino != "" && ask("Rhino 7 을 지금 리스너와 함께 실행할까요?", true) {
+	} else if rhino != "" && ask("Rhino "+rhinoVer+" 을 지금 리스너와 함께 실행할까요?", true) {
 		c := exec.Command(rhino, "/nosplash", fmt.Sprintf(`/runscript=_-RunPythonScript %s`, listener))
 		c.SysProcAttr = &syscall.SysProcAttr{CmdLine: fmt.Sprintf(`"%s" %s`, rhino, rhinoArgs)}
 		if err := c.Start(); err != nil {
@@ -443,7 +466,7 @@ func main() {
 	} else {
 		say("▶ 이제 Claude 앱을 여세요.")
 	}
-	say("▶ Rhino 는 바탕화면의 'Rhino 7 + Claude' 바로가기로 여세요.")
+	say("▶ Rhino 는 바탕화면의 'Rhino 7 + Claude' (또는 'Rhino 8 + Claude') 바로가기로 여세요.")
 	say("▶ 확인: Claude 에게 \"Rhino에 지금 뭐가 있어?\" 라고 물어보세요.")
 	pause()
 }

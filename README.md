@@ -1,20 +1,22 @@
 # rhino7-mcp
 
-Claude 데스크톱 앱에서 대화로 **Rhino 7** 모델을 읽고, 만들고, 고치고, 뷰포트를 캡처할 수 있게 해 주는 MCP 서버입니다.
+Claude 데스크톱 앱에서 대화로 **Rhino 7 / Rhino 8** 모델을 읽고, 만들고, 고치고, 뷰포트를 캡처할 수 있게 해 주는 MCP 서버입니다.
+
+> 이름은 `rhino7-mcp` 이지만 **Rhino 8 에서도 동작하는 것을 확인했습니다.** McNeel 공식 Rhino MCP 가 지원하지 않는 Rhino 7 에서도 쓸 수 있는 것이 특징입니다.
 
 ```
-Claude 데스크톱 앱 ──(MCP, stdio)── rhino_mcp_server.py ──(127.0.0.1:7311)── rhino_listener.py (Rhino 7 안, IronPython 2.7)
+Claude 데스크톱 앱 ──(MCP, stdio)── rhino_mcp_server.py ──(127.0.0.1:7311)── rhino_listener.py (Rhino 7/8 안)
 ```
 
 ## 빠른 설치 (추천)
 
-**필요한 것:** Windows 10/11, Rhino 7, Python 3.10 이상, Claude 데스크톱 앱
+**필요한 것:** Windows 10/11, Rhino 7 또는 8, Python 3.10 이상, Claude 데스크톱 앱
 
-1. [`dist/rhino7-mcp-v1.0.zip`](dist/rhino7-mcp-v1.0.zip) 을 내려받습니다.
+1. [`dist/rhino7-mcp-v1.1.zip`](dist/rhino7-mcp-v1.1.zip) 을 내려받습니다.
 2. zip 을 오른쪽 클릭 → 속성 → **차단 해제** 체크 후 압축을 풉니다.
 3. `rhino7-mcp-setup.exe` 를 실행합니다. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**.
 4. 설치가 끝나면 Claude 앱을 트레이 아이콘에서 **완전히 종료**한 뒤 다시 엽니다.
-5. Rhino 는 바탕화면의 **"Rhino 7 + Claude"** 바로가기로 엽니다.
+5. Rhino 는 바탕화면의 **"Rhino 7 + Claude"** 또는 **"Rhino 8 + Claude"** 바로가기로 엽니다. (설치된 버전마다 하나씩 만들어집니다)
 
 설치 프로그램은 파일 복사, `mcp` 설치, Claude 구성 등록, 바로가기 생성, 연결 확인을 자동으로 합니다. 자세한 내용은 zip 안의 `README.txt` 를 보세요. 설치 프로그램 소스는 [`installer/`](installer/) 에 있습니다. 빌드하려면 `installer/payload/` 에 `rhino_listener.py`, `rhino_mcp_server.py`, `test_connection.py`, `merge_config.py`, `check.bat` 를 복사한 뒤 `GOOS=windows GOARCH=amd64 go build -o rhino7-mcp-setup.exe .` 를 실행하세요.
 
@@ -22,7 +24,7 @@ Claude 데스크톱 앱 ──(MCP, stdio)── rhino_mcp_server.py ──(127.
 
 | 파일 | 역할 |
 |---|---|
-| `rhino_listener.py` | Rhino 7 안에서 실행하는 리스너. 요청을 UI 스레드에서 처리하고, 변경 작업은 Undo 1단계로 기록 |
+| `rhino_listener.py` | Rhino 7/8 안에서 실행하는 리스너. 요청을 UI 스레드에서 처리하고, 변경 작업은 Undo 1단계로 기록 |
 | `rhino_mcp_server.py` | Claude 데스크톱 앱이 실행하는 MCP 서버 (Python 3.10~3.13, `mcp` 1.x/2.x 지원) |
 | `test_connection.py` | Claude 없이 Rhino 연결만 확인 |
 | `merge_config.py` | Claude 구성 파일에 `rhino7` 서버를 등록 (기존 설정 유지, 깨진 JSON 복구, 백업 생성) |
@@ -32,7 +34,7 @@ Claude 데스크톱 앱 ──(MCP, stdio)── rhino_mcp_server.py ──(127.
 ## 수동 설치 (Windows)
 
 1. 이 저장소를 받아서 원하는 폴더에 둡니다. 예: `C:\Users\<사용자>\rhino7mcp`
-2. Rhino 7을 열고 명령행에 아래를 입력해 리스너를 켭니다.
+2. Rhino 7 또는 8을 열고 명령행에 아래를 입력해 리스너를 켭니다.
    ```
    _-RunPythonScript "C:\Users\<사용자>\rhino7mcp\rhino_listener.py"
    ```
@@ -48,6 +50,12 @@ Claude 데스크톱 앱 ──(MCP, stdio)── rhino_mcp_server.py ──(127.
 - Microsoft Store 버전 Claude 앱은 구성 파일이 `%APPDATA%\Claude` 가 아니라
   `%LOCALAPPDATA%\Claude-Data\<패키지명>\claude_desktop_config.json` 에 있습니다. `merge_config.py` 가 자동으로 찾습니다.
 - 구성 파일은 Claude 앱이 **시작할 때만** 읽으므로 수정 후 반드시 앱을 완전히 재시작해야 합니다.
+
+## Rhino 8 에서 쓸 때
+
+- 설치 방법은 Rhino 7 과 같습니다. 설치 프로그램이 Rhino 8 을 찾으면 `Rhino 8 + Claude` 바로가기를 만듭니다.
+- Rhino 7 과 8 을 동시에 열면 **먼저 연 쪽만** 연결됩니다 (둘 다 포트 7311 사용).
+- Rhino 8 에 McNeel 공식 Rhino MCP 도 설치했다면 Claude 앱에서 둘 중 하나만 켜 두는 것이 헷갈리지 않습니다.
 
 ## Claude가 쓸 수 있는 도구
 
