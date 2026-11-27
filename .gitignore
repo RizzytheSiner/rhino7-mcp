@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+install_log.txt
+check_log.txt
+*.bak-*
+installer/*.exe
